@@ -444,6 +444,7 @@ build_gpqeid_param(char *buf, int bufsz,
 				   bool is_writer, int identifier, int hostSegs, int icHtabSize)
 {
 	int		len;
+	Oid		tempNamespaceId, tempToastNamespaceId;
 #ifdef HAVE_INT64_TIMESTAMP
 #define TIMESTAMP_FORMAT INT64_FORMAT
 #else
@@ -454,9 +455,12 @@ build_gpqeid_param(char *buf, int bufsz,
 #endif
 #endif
 
-	len = snprintf(buf, bufsz, "%d;" TIMESTAMP_FORMAT ";%s;%d;%d;%d",
+	GetTempNamespaceState(&tempNamespaceId, &tempToastNamespaceId);
+
+	len = snprintf(buf, bufsz, "%d;" TIMESTAMP_FORMAT ";%s;%d;%d;%d;%d;%d",
 				   gp_session_id, PgStartTime,
-				   (is_writer ? "true" : "false"), identifier, hostSegs, icHtabSize);
+				   (is_writer ? "true" : "false"), identifier, hostSegs, icHtabSize,
+				   tempNamespaceId, tempToastNamespaceId);
 
 	return (len > 0 && len < bufsz);
 }
@@ -494,6 +498,7 @@ cdbgang_parse_gpqeid_params(struct Port *port pg_attribute_unused(),
 	char	   *gpqeid = pstrdup(gpqeid_value);
 	char	   *cp;
 	char	   *np = gpqeid;
+	Oid		   tempNamespaceId, tempToastNamespaceId;
 
 	/* gp_session_id */
 	if (gpqeid_next_param(&cp, &np))
@@ -530,12 +535,24 @@ cdbgang_parse_gpqeid_params(struct Port *port pg_attribute_unused(),
 		ic_htab_size = (int) strtol(cp, NULL, 10);
 	}
 
+	if (gpqeid_next_param(&cp, &np))
+	{
+		tempNamespaceId = atooid(cp);
+	}
+
+	if (gpqeid_next_param(&cp, &np))
+	{
+		tempToastNamespaceId = atooid(cp);
+	}
+
 	/* Too few items, or too many? */
 	if (!cp || np)
 		goto bad;
 
 	if (gp_session_id <= 0 || PgStartTime <= 0 || qe_identifier < 0 || host_segments <= 0 || ic_htab_size <= 0)
 		goto bad;
+
+	SetTempNamespaceState(tempNamespaceId, tempToastNamespaceId);
 
 	pfree(gpqeid);
 	return;

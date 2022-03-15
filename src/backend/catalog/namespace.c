@@ -70,6 +70,7 @@
 #include "cdb/cdbdisp_query.h"
 #include "cdb/cdbtm.h"
 #include "cdb/cdbvars.h"
+#include "cdb/cdbgang.h"
 #include "tcop/utility.h"
 
 /*
@@ -3348,6 +3349,8 @@ GetTempToastNamespace(void)
  *
  * This is used for conveying state to a parallel worker, and is not meant
  * for general-purpose access.
+ *
+ * GPDB: also used when gang creating
  */
 void
 GetTempNamespaceState(Oid *tempNamespaceId, Oid *tempToastNamespaceId)
@@ -3364,6 +3367,8 @@ GetTempNamespaceState(Oid *tempNamespaceId, Oid *tempToastNamespaceId)
  * general-purpose access.  By transferring these namespace OIDs to workers,
  * we ensure they will have the same notion of the search path as their leader
  * does.
+ *
+ * GPDB: also used when gang creating
  */
 void
 SetTempNamespaceState(Oid tempNamespaceId, Oid tempToastNamespaceId)
@@ -4140,6 +4145,7 @@ InitTempTableNamespace(void)
 		/*
 		 * Dispatch the command to all primary and mirror segment dbs.
 		 * Starts a global transaction and reconfigures cluster if needed.
+		 * Also synchronize in-processes variable to all gangs.
 		 * Waits for QEs to finish.  Exits via ereport(ERROR,...) if error.
 		 */
 		CdbDispatchUtilityStatement((Node *) stmt,
@@ -4555,7 +4561,8 @@ TempNamespaceValid(bool error_if_removed)
 		if (SearchSysCacheExists1(NAMESPACEOID,
 								  ObjectIdGetDatum(myTempNamespace)))
 			return true;
-		else if (Gp_role != GP_ROLE_EXECUTE && error_if_removed) 
+		else if (Gp_role != GP_ROLE_EXECUTE && error_if_removed)
+		{
 			/*
 			 * We might call this on QEs if we're dropping our own
 			 * session's temp table schema. However, we want the
@@ -4566,6 +4573,7 @@ TempNamespaceValid(bool error_if_removed)
 					(errcode(ERRCODE_UNDEFINED_SCHEMA),
 					 errmsg("temporary table schema removed while session "
 							"still in progress")));
+		}
 	}
 	return false;
 }
